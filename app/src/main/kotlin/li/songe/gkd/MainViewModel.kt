@@ -13,46 +13,38 @@ import li.songe.gkd.data.RawSubscription
 import li.songe.gkd.data.SubsItem
 import li.songe.gkd.db.DbSet
 import li.songe.gkd.permission.authReasonFlow
+import li.songe.gkd.util.LOCAL_SUBS_ID
 import li.songe.gkd.util.checkUpdate
+import li.songe.gkd.util.clearCache
 import li.songe.gkd.util.launchTry
-import li.songe.gkd.util.logZipDir
 import li.songe.gkd.util.map
-import li.songe.gkd.util.newVersionApkDir
-import li.songe.gkd.util.snapshotZipDir
 import li.songe.gkd.util.storeFlow
 import li.songe.gkd.util.updateSubscription
 
 class MainViewModel : ViewModel() {
     init {
-
-        val localSubsItem = SubsItem(
-            id = -2, order = -2, mtime = System.currentTimeMillis()
-        )
         viewModelScope.launchTry(Dispatchers.IO) {
             val subsItems = DbSet.subsItemDao.queryAll()
-            if (!subsItems.any { s -> s.id == localSubsItem.id }) {
+            if (!subsItems.any { s -> s.id == LOCAL_SUBS_ID }) {
                 updateSubscription(
                     RawSubscription(
-                        id = localSubsItem.id,
+                        id = LOCAL_SUBS_ID,
                         name = "本地订阅",
                         version = 0
                     )
                 )
-                DbSet.subsItemDao.insert(localSubsItem)
+                DbSet.subsItemDao.insert(
+                    SubsItem(
+                        id = LOCAL_SUBS_ID,
+                        order = subsItems.minByOrNull { it.order }?.order ?: 0,
+                    )
+                )
             }
         }
 
         viewModelScope.launchTry(Dispatchers.IO) {
             // 每次进入删除缓存
-            listOf(snapshotZipDir, newVersionApkDir, logZipDir).forEach { dir ->
-                if (dir.isDirectory && dir.exists()) {
-                    dir.listFiles()?.forEach { file ->
-                        if (file.isFile) {
-                            file.delete()
-                        }
-                    }
-                }
-            }
+            clearCache()
         }
 
         if (storeFlow.value.autoCheckAppUpdate) {

@@ -63,9 +63,10 @@ import kotlinx.coroutines.Dispatchers
 import li.songe.gkd.data.RawSubscription
 import li.songe.gkd.data.SubsConfig
 import li.songe.gkd.db.DbSet
+import li.songe.gkd.ui.component.TowLineText
 import li.songe.gkd.ui.component.getDialogResult
 import li.songe.gkd.ui.destinations.GlobalRuleExcludePageDestination
-import li.songe.gkd.ui.destinations.GroupItemPageDestination
+import li.songe.gkd.ui.destinations.GroupImagePageDestination
 import li.songe.gkd.ui.style.itemPadding
 import li.songe.gkd.util.LocalNavController
 import li.songe.gkd.util.ProfileTransitions
@@ -116,7 +117,10 @@ fun GlobalRulePage(subsItemId: Long, focusGroupKey: Int? = null) {
                     )
                 }
             }, title = {
-                Text(text = "全局规则/${rawSubs?.name ?: subsItemId}")
+                TowLineText(
+                    title = rawSubs?.name ?: subsItemId.toString(),
+                    subTitle = "全局规则"
+                )
             })
         },
         floatingActionButton = {
@@ -464,7 +468,7 @@ fun GlobalRulePage(subsItemId: Long, focusGroupKey: Int? = null) {
                     TextButton(onClick = {
                         setShowGroupItem(null)
                         navController.navigate(
-                            GroupItemPageDestination(
+                            GroupImagePageDestination(
                                 subsInt = subsItemId,
                                 groupKey = showGroupItem.key
                             )

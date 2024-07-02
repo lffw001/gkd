@@ -1,6 +1,7 @@
 package li.songe.gkd.ui
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,12 +14,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FloatingActionButton
@@ -30,6 +32,7 @@ import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -58,13 +61,17 @@ import li.songe.gkd.db.DbSet
 import li.songe.gkd.ui.destinations.AppItemPageDestination
 import li.songe.gkd.ui.destinations.GlobalRulePageDestination
 import li.songe.gkd.ui.style.itemPadding
+import li.songe.gkd.ui.style.itemVerticalPadding
+import li.songe.gkd.ui.style.menuPadding
+import li.songe.gkd.ui.style.titleItemPadding
+import li.songe.gkd.util.LOCAL_SUBS_ID
 import li.songe.gkd.util.LocalNavController
 import li.songe.gkd.util.ProfileTransitions
+import li.songe.gkd.util.ResolvedGroup
 import li.songe.gkd.util.RuleSortOption
 import li.songe.gkd.util.appInfoCacheFlow
 import li.songe.gkd.util.launchTry
 import li.songe.gkd.util.navigate
-import li.songe.gkd.util.toast
 
 @RootNavGraph
 @Destination(style = ProfileTransitions::class)
@@ -124,20 +131,24 @@ fun AppConfigPage(appId: String) {
                         expanded = expanded,
                         onDismissRequest = { expanded = false }
                     ) {
+                        Text(
+                            text = "排序",
+                            modifier = Modifier.menuPadding(),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
                         RuleSortOption.allSubObject.forEach { s ->
                             DropdownMenuItem(
                                 text = {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        RadioButton(
-                                            selected = ruleSortType == s,
-                                            onClick = {
-                                                vm.ruleSortTypeFlow.update { s }
-                                            }
-                                        )
-                                        Text(s.label)
-                                    }
+                                    Text(s.label)
+                                },
+                                trailingIcon = {
+                                    RadioButton(
+                                        selected = ruleSortType == s,
+                                        onClick = {
+                                            vm.ruleSortTypeFlow.update { s }
+                                        }
+                                    )
                                 },
                                 onClick = {
                                     vm.ruleSortTypeFlow.update { s }
@@ -151,7 +162,7 @@ fun AppConfigPage(appId: String) {
         floatingActionButton = {
             FloatingActionButton(
                 onClick = {
-                    navController.navigate(AppItemPageDestination(-2, appId))
+                    navController.navigate(AppItemPageDestination(LOCAL_SUBS_ID, appId))
                 },
                 content = {
                     Icon(
@@ -166,60 +177,77 @@ fun AppConfigPage(appId: String) {
             modifier = Modifier.padding(contentPadding),
             state = listState,
         ) {
-            items(globalGroups) { g ->
+            itemsIndexed(globalGroups) { i, g ->
                 val excludeData = remember(g.config?.exclude) {
                     ExcludeData.parse(g.config?.exclude)
                 }
                 val checked = getChecked(excludeData, g.group, appId, appInfo)
-                AppGroupCard(g.group, checked ?: false, onClick = {
-                    navController.navigate(GlobalRulePageDestination(g.subsItem.id, g.group.key))
-                }) { newChecked ->
-                    if (checked == null) {
-                        toast("内置禁用,不可修改")
-                        return@AppGroupCard
-                    }
-                    vm.viewModelScope.launchTry {
-                        DbSet.subsConfigDao.insert(
-                            (g.config ?: SubsConfig(
-                                type = SubsConfig.GlobalGroupType,
-                                subsItemId = g.subsItem.id,
-                                groupKey = g.group.key,
-                            )).copy(
-                                exclude = excludeData.copy(
-                                    appIds = excludeData.appIds.toMutableMap().apply {
-                                        set(appId, !newChecked)
-                                    }
-                                ).stringify()
+                TitleGroupCard(globalGroups, i) {
+                    AppGroupCard(
+                        vm = vm,
+                        group = g.group,
+                        checked = checked,
+                        onClick = {
+                            navController.navigate(
+                                GlobalRulePageDestination(
+                                    g.subsItem.id,
+                                    g.group.key
+                                )
                             )
-                        )
+                        }
+                    ) { newChecked ->
+                        vm.viewModelScope.launchTry {
+                            DbSet.subsConfigDao.insert(
+                                (g.config ?: SubsConfig(
+                                    type = SubsConfig.GlobalGroupType,
+                                    subsItemId = g.subsItem.id,
+                                    groupKey = g.group.key,
+                                )).copy(
+                                    exclude = excludeData.copy(
+                                        appIds = excludeData.appIds.toMutableMap().apply {
+                                            set(appId, !newChecked)
+                                        }
+                                    ).stringify()
+                                )
+                            )
+                        }
                     }
                 }
             }
             item {
                 if (globalGroups.isNotEmpty() && appGroups.isNotEmpty()) {
-                    HorizontalDivider()
+                    HorizontalDivider(
+                        modifier = Modifier.padding(0.dp, itemVerticalPadding),
+                    )
                 }
             }
-            items(appGroups) { g ->
-                AppGroupCard(g.group, g.enable, onClick = {
-                    navController.navigate(
-                        AppItemPageDestination(
-                            g.subsItem.id,
-                            appId,
-                            g.group.key,
-                        )
-                    )
-                }) {
-                    vm.viewModelScope.launchTry {
-                        DbSet.subsConfigDao.insert(
-                            g.config?.copy(enable = it) ?: SubsConfig(
-                                type = SubsConfig.AppGroupType,
-                                subsItemId = g.subsItem.id,
-                                appId = appId,
-                                groupKey = g.group.key,
-                                enable = it
+            itemsIndexed(appGroups) { i, g ->
+                TitleGroupCard(appGroups, i) {
+                    AppGroupCard(
+                        vm = vm,
+                        group = g.group,
+                        checked = g.enable,
+                        onClick = {
+                            navController.navigate(
+                                AppItemPageDestination(
+                                    g.subsItem.id,
+                                    appId,
+                                    g.group.key,
+                                )
                             )
-                        )
+                        }
+                    ) {
+                        vm.viewModelScope.launchTry {
+                            DbSet.subsConfigDao.insert(
+                                g.config?.copy(enable = it) ?: SubsConfig(
+                                    type = SubsConfig.AppGroupType,
+                                    subsItemId = g.subsItem.id,
+                                    appId = appId,
+                                    groupKey = g.group.key,
+                                    enable = it
+                                )
+                            )
+                        }
                     }
                 }
             }
@@ -238,12 +266,54 @@ fun AppConfigPage(appId: String) {
             }
         }
     }
+
+    val innerDisabledDlg by vm.innerDisabledDlgFlow.collectAsState()
+    if (innerDisabledDlg) {
+        AlertDialog(
+            title = { Text(text = "内置禁用") },
+            text = {
+                Text(text = "此规则组已经在其 apps 字段中配置对当前应用的禁用, 因此无法手动开启规则组\n\n提示: 这种情况一般在此全局规则无法适配/跳过适配当前应用时出现")
+            },
+            onDismissRequest = { vm.innerDisabledDlgFlow.value = false },
+            confirmButton = {
+                TextButton(onClick = { vm.innerDisabledDlgFlow.value = false }) {
+                    Text(text = "我知道了")
+                }
+            }
+        )
+
+    }
+}
+
+@Composable
+private fun TitleGroupCard(groups: List<ResolvedGroup>, i: Int, content: @Composable () -> Unit) {
+    val lastGroup = groups.getOrNull(i - 1)
+    val g = groups[i]
+    if (g.subsItem !== lastGroup?.subsItem) {
+        Column(
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(
+                text = g.subscription.name,
+                modifier = Modifier.titleItemPadding(),
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.primary,
+                maxLines = 1,
+                softWrap = false,
+                overflow = TextOverflow.Ellipsis,
+            )
+            content()
+        }
+    } else {
+        content()
+    }
 }
 
 @Composable
 private fun AppGroupCard(
+    vm: AppConfigVm,
     group: RawSubscription.RawGroupProps,
-    enable: Boolean,
+    checked: Boolean?,
     onClick: () -> Unit,
     onCheckedChange: ((Boolean) -> Unit)?,
 ) {
@@ -297,6 +367,20 @@ private fun AppGroupCard(
             }
         }
         Spacer(modifier = Modifier.width(10.dp))
-        Switch(checked = enable, modifier = Modifier, onCheckedChange = onCheckedChange)
+        if (checked != null) {
+            Switch(checked = checked, onCheckedChange = onCheckedChange)
+        } else {
+            Switch(
+                checked = false,
+                enabled = false,
+                onCheckedChange = null,
+                modifier = Modifier.clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                ) {
+                    vm.innerDisabledDlgFlow.value = true
+                }
+            )
+        }
     }
 }

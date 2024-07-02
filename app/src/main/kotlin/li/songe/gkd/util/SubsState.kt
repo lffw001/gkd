@@ -15,6 +15,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -97,17 +98,6 @@ fun updateSubscription(subscription: RawSubscription) {
                     .writeText(json.encodeToString(subscription))
             }
             LogUtils.d("更新订阅文件:id=${subscription.id},name=${subscription.name}")
-        }
-    }
-}
-
-fun deleteSubscription(subsId: Long) {
-    val newMap = subsIdToRawFlow.value.toMutableMap()
-    newMap.remove(subsId)
-    subsIdToRawFlow.value = newMap.toImmutableMap()
-    subsFolder.resolve("$subsId.json").apply {
-        if (exists()) {
-            delete()
         }
     }
 }
@@ -199,8 +189,8 @@ val ruleSummaryFlow by lazy {
             val subGlobalGroupToRules =
                 mutableMapOf<RawSubscription.RawGlobalGroup, List<GlobalRule>>()
             rawSubs.globalGroups.filter { g ->
-                g.valid && (subGlobalSubsConfigs.find { c -> c.groupKey == g.key }?.enable
-                    ?: g.enable ?: true)
+                (subGlobalSubsConfigs.find { c -> c.groupKey == g.key }?.enable
+                    ?: g.enable ?: true) && g.valid
             }.forEach { groupRaw ->
                 val config = subGlobalSubsConfigs.find { c -> c.groupKey == groupRaw.key }
                 val g = ResolvedGlobalGroup(
@@ -292,7 +282,7 @@ val ruleSummaryFlow by lazy {
             appIdToAllGroups = appAllGroups.mapValues { e -> e.value.toImmutableList() }
                 .toImmutableMap()
         )
-    }.stateIn(appScope, SharingStarted.Eagerly, RuleSummary())
+    }.flowOn(Dispatchers.Default).stateIn(appScope, SharingStarted.Eagerly, RuleSummary())
 }
 
 private fun loadSubs(id: Long): RawSubscription {

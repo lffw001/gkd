@@ -52,6 +52,7 @@ import li.songe.gkd.ui.component.TextSwitch
 import li.songe.gkd.ui.destinations.AboutPageDestination
 import li.songe.gkd.ui.destinations.AdvancedPageDestination
 import li.songe.gkd.ui.style.itemPadding
+import li.songe.gkd.ui.style.titleItemPadding
 import li.songe.gkd.ui.theme.supportDynamicColor
 import li.songe.gkd.util.DarkThemeOption
 import li.songe.gkd.util.LoadStatus
@@ -95,9 +96,12 @@ fun useSettingsPage(): ScaffoldExt {
             mutableStateOf(store.clickToast)
         }
         val maxCharLen = 32
-        AlertDialog(title = { Text(text = "请输入提示文字") }, text = {
+        AlertDialog(title = { Text(text = "触发提示") }, text = {
             OutlinedTextField(
                 value = value,
+                placeholder = {
+                    Text(text = "请输入提示内容")
+                },
                 onValueChange = {
                     value = it.take(maxCharLen)
                 },
@@ -256,8 +260,8 @@ fun useSettingsPage(): ScaffoldExt {
 
             Text(
                 text = "常规",
-                modifier = Modifier.itemPadding(),
-                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.titleItemPadding(),
+                style = MaterialTheme.typography.titleSmall,
                 color = MaterialTheme.colorScheme.primary,
             )
 
@@ -308,8 +312,8 @@ fun useSettingsPage(): ScaffoldExt {
 
             Text(
                 text = "更新",
-                modifier = Modifier.itemPadding(),
-                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.titleItemPadding(),
+                style = MaterialTheme.typography.titleSmall,
                 color = MaterialTheme.colorScheme.primary,
             )
 
@@ -355,8 +359,8 @@ fun useSettingsPage(): ScaffoldExt {
 
             Text(
                 text = "日志",
-                modifier = Modifier.itemPadding(),
-                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.titleItemPadding(),
+                style = MaterialTheme.typography.titleSmall,
                 color = MaterialTheme.colorScheme.primary,
             )
 
@@ -392,8 +396,8 @@ fun useSettingsPage(): ScaffoldExt {
 
             Text(
                 text = "其它",
-                modifier = Modifier.itemPadding(),
-                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.titleItemPadding(),
+                style = MaterialTheme.typography.titleSmall,
                 color = MaterialTheme.colorScheme.primary,
             )
 

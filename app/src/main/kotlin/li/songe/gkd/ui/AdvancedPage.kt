@@ -74,6 +74,7 @@ import li.songe.gkd.ui.component.SettingItem
 import li.songe.gkd.ui.component.TextSwitch
 import li.songe.gkd.ui.destinations.SnapshotPageDestination
 import li.songe.gkd.ui.style.itemPadding
+import li.songe.gkd.ui.style.titleItemPadding
 import li.songe.gkd.util.LocalLauncher
 import li.songe.gkd.util.LocalNavController
 import li.songe.gkd.util.ProfileTransitions
@@ -125,8 +126,8 @@ fun AdvancedPage() {
         ) {
             Text(
                 text = "Shizuku",
-                modifier = Modifier.itemPadding(),
-                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.titleItemPadding(),
+                style = MaterialTheme.typography.titleSmall,
                 color = MaterialTheme.colorScheme.primary,
             )
             val shizukuOk by shizukuOkState.stateFlow.collectAsState()
@@ -151,8 +152,8 @@ fun AdvancedPage() {
 
             Text(
                 text = "HTTP服务",
-                modifier = Modifier.itemPadding(),
-                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.titleItemPadding(),
+                style = MaterialTheme.typography.titleSmall,
                 color = MaterialTheme.colorScheme.primary,
             )
             Row(
@@ -246,8 +247,8 @@ fun AdvancedPage() {
 
             Text(
                 text = "快照",
-                modifier = Modifier.itemPadding(),
-                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.titleItemPadding(),
+                style = MaterialTheme.typography.titleSmall,
                 color = MaterialTheme.colorScheme.primary,
             )
 
@@ -336,8 +337,8 @@ fun AdvancedPage() {
 
             Text(
                 text = "其它",
-                modifier = Modifier.itemPadding(),
-                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.titleItemPadding(),
+                style = MaterialTheme.typography.titleSmall,
                 color = MaterialTheme.colorScheme.primary,
             )
 
@@ -359,9 +360,12 @@ fun AdvancedPage() {
             var value by remember {
                 mutableStateOf(store.httpServerPort.toString())
             }
-            AlertDialog(title = { Text(text = "请输入新端口") }, text = {
+            AlertDialog(title = { Text(text = "服务端口") }, text = {
                 OutlinedTextField(
                     value = value,
+                    placeholder = {
+                        Text(text = "请输入 5000-65535 的整数")
+                    },
                     onValueChange = {
                         value = it.filter { c -> c.isDigit() }.take(5)
                     },
@@ -382,7 +386,7 @@ fun AdvancedPage() {
                     onClick = {
                         val newPort = value.toIntOrNull()
                         if (newPort == null || !(5000 <= newPort && newPort <= 65535)) {
-                            toast("请输入在 5000~65535 的任意数字")
+                            toast("请输入 5000-65535 的整数")
                             return@TextButton
                         }
                         storeFlow.value = store.copy(

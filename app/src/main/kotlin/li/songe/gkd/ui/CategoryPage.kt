@@ -49,6 +49,7 @@ import kotlinx.coroutines.Dispatchers
 import li.songe.gkd.data.CategoryConfig
 import li.songe.gkd.data.RawSubscription
 import li.songe.gkd.db.DbSet
+import li.songe.gkd.ui.component.TowLineText
 import li.songe.gkd.ui.component.getDialogResult
 import li.songe.gkd.ui.style.itemPadding
 import li.songe.gkd.util.EnableGroupOption
@@ -92,7 +93,12 @@ fun CategoryPage(subsItemId: Long) {
                     contentDescription = null,
                 )
             }
-        }, title = { Text(text = "规则类别/${subsRaw?.name ?: subsItemId}") }, actions = {})
+        }, title = {
+            TowLineText(
+                title = subsRaw?.name ?: subsItemId.toString(),
+                subTitle = "规则类别"
+            )
+        }, actions = {})
     }, floatingActionButton = {
         if (editable) {
             FloatingActionButton(onClick = { showAddDlg = true }) {
@@ -260,14 +266,13 @@ fun CategoryPage(subsItemId: Long) {
                 vm.viewModelScope.launchTry(Dispatchers.IO) {
                     subsItem?.apply {
                         updateSubscription(
-                            subsRawVal.copy(categories = categories.toMutableList()
-                                .apply {
-                                    val i =
-                                        categories.indexOfFirst { c -> c.key == editNameCategory.key }
-                                    if (i >= 0) {
-                                        set(i, editNameCategory.copy(name = source))
-                                    }
-                                })
+                            subsRawVal.copy(categories = categories.toMutableList().apply {
+                                val i =
+                                    categories.indexOfFirst { c -> c.key == editNameCategory.key }
+                                if (i >= 0) {
+                                    set(i, editNameCategory.copy(name = source))
+                                }
+                            })
                         )
                         DbSet.subsItemDao.update(copy(mtime = System.currentTimeMillis()))
                     }
@@ -305,11 +310,10 @@ fun CategoryPage(subsItemId: Long) {
                 vm.viewModelScope.launchTry(Dispatchers.IO) {
                     subsItem?.apply {
                         updateSubscription(
-                            subsRawVal.copy(categories = categories.toMutableList()
-                                .apply {
-                                    add(RawSubscription.RawCategory(key = (categories.maxOfOrNull { c -> c.key }
-                                        ?: -1) + 1, name = source, enable = null))
-                                })
+                            subsRawVal.copy(categories = categories.toMutableList().apply {
+                                add(RawSubscription.RawCategory(key = (categories.maxOfOrNull { c -> c.key }
+                                    ?: -1) + 1, name = source, enable = null))
+                            })
                         )
                         DbSet.subsItemDao.update(copy(mtime = System.currentTimeMillis()))
                         toast("添加成功")
