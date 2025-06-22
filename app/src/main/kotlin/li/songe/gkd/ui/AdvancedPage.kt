@@ -2,10 +2,12 @@ package li.songe.gkd.ui
 
 import android.app.Activity
 import android.content.Context
-import android.content.Intent
 import android.media.projection.MediaProjectionManager
 import android.os.Build
+import androidx.activity.compose.LocalActivity
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -19,7 +21,8 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.WarningAmber
+import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -38,68 +41,142 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
-import androidx.core.content.ContextCompat
-import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.compose.ui.window.DialogProperties
+import androidx.lifecycle.viewModelScope
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.blankj.utilcode.util.LogUtils
 import com.dylanc.activityresult.launcher.launchForResult
 import com.ramcosta.composedestinations.annotation.Destination
-import com.ramcosta.composedestinations.annotation.RootNavGraph
+import com.ramcosta.composedestinations.annotation.RootGraph
+import com.ramcosta.composedestinations.generated.destinations.ActivityLogPageDestination
+import com.ramcosta.composedestinations.generated.destinations.SnapshotPageDestination
+import com.ramcosta.composedestinations.generated.destinations.WebViewPageDestination
+import com.ramcosta.composedestinations.utils.toDestinationsNavigator
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import li.songe.gkd.MainActivity
 import li.songe.gkd.appScope
 import li.songe.gkd.debug.FloatingService
 import li.songe.gkd.debug.HttpService
 import li.songe.gkd.debug.ScreenshotService
 import li.songe.gkd.permission.canDrawOverlaysState
-import li.songe.gkd.permission.checkOrRequestPermission
+import li.songe.gkd.permission.foregroundServiceSpecialUseState
 import li.songe.gkd.permission.notificationState
+import li.songe.gkd.permission.requiredPermission
 import li.songe.gkd.permission.shizukuOkState
-import li.songe.gkd.shizuku.CommandResult
-import li.songe.gkd.shizuku.newActivityTaskManager
-import li.songe.gkd.shizuku.newUserService
-import li.songe.gkd.shizuku.safeGetTasks
+import li.songe.gkd.shizuku.shizukuCheckActivity
+import li.songe.gkd.shizuku.shizukuCheckUserService
+import li.songe.gkd.shizuku.shizukuCheckWorkProfile
 import li.songe.gkd.ui.component.AuthCard
 import li.songe.gkd.ui.component.SettingItem
 import li.songe.gkd.ui.component.TextSwitch
-import li.songe.gkd.ui.destinations.SnapshotPageDestination
+import li.songe.gkd.ui.component.autoFocus
+import li.songe.gkd.ui.component.updateDialogOptions
+import li.songe.gkd.ui.local.LocalMainViewModel
+import li.songe.gkd.ui.local.LocalNavController
+import li.songe.gkd.ui.style.EmptyHeight
+import li.songe.gkd.ui.style.ProfileTransitions
 import li.songe.gkd.ui.style.itemPadding
-import li.songe.gkd.util.LocalLauncher
-import li.songe.gkd.util.LocalNavController
-import li.songe.gkd.util.ProfileTransitions
-import li.songe.gkd.util.json
+import li.songe.gkd.ui.style.titleItemPadding
+import li.songe.gkd.util.ShortUrlSet
+import li.songe.gkd.util.appInfoCacheFlow
 import li.songe.gkd.util.launchAsFn
-import li.songe.gkd.util.launchTry
-import li.songe.gkd.util.navigate
-import li.songe.gkd.util.openUri
+import li.songe.gkd.util.shizukuAppId
+import li.songe.gkd.util.shizukuMiniVersionCode
+import li.songe.gkd.util.shizukuStoreFlow
 import li.songe.gkd.util.storeFlow
+import li.songe.gkd.util.throttle
 import li.songe.gkd.util.toast
 import rikka.shizuku.Shizuku
 
-@RootNavGraph
-@Destination(style = ProfileTransitions::class)
+@Destination<RootGraph>(style = ProfileTransitions::class)
 @Composable
 fun AdvancedPage() {
-    val context = LocalContext.current as MainActivity
-    val scope = rememberCoroutineScope()
-    val launcher = LocalLauncher.current
+    val context = LocalActivity.current as MainActivity
+    val mainVm = LocalMainViewModel.current
+    val vm = viewModel<AdvancedVm>()
     val navController = LocalNavController.current
     val store by storeFlow.collectAsState()
-    val vm = hiltViewModel<AdvancedVm>()
-    val snapshotCount by vm.snapshotCountFlow.collectAsState()
 
-    var showPortDlg by remember {
+    var showEditPortDlg by remember {
         mutableStateOf(false)
+    }
+    if (showEditPortDlg) {
+        var value by remember {
+            mutableStateOf(store.httpServerPort.toString())
+        }
+        AlertDialog(
+            properties = DialogProperties(dismissOnClickOutside = false),
+            title = { Text(text = "服务端口") },
+            text = {
+                OutlinedTextField(
+                    value = value,
+                    placeholder = {
+                        Text(text = "请输入 5000-65535 的整数")
+                    },
+                    onValueChange = {
+                        value = it.filter { c -> c.isDigit() }.take(5)
+                    },
+                    singleLine = true,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .autoFocus(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    supportingText = {
+                        Text(
+                            text = "${value.length} / 5",
+                            modifier = Modifier.fillMaxWidth(),
+                            textAlign = TextAlign.End,
+                        )
+                    },
+                )
+            },
+            onDismissRequest = {
+                showEditPortDlg = false
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = value.isNotEmpty(),
+                    onClick = {
+                        val newPort = value.toIntOrNull()
+                        if (newPort == null || !(5000 <= newPort && newPort <= 65535)) {
+                            toast("请输入 5000-65535 的整数")
+                            return@TextButton
+                        }
+                        storeFlow.value = store.copy(
+                            httpServerPort = newPort
+                        )
+                        showEditPortDlg = false
+                        if (HttpService.httpServerFlow.value != null) {
+                            toast("已更新, 重启服务")
+                        } else {
+                            toast("已更新")
+                        }
+                    }
+                ) {
+                    Text(
+                        text = "确认", modifier = Modifier
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showEditPortDlg = false }) {
+                    Text(
+                        text = "取消"
+                    )
+                }
+            }
+        )
     }
 
     val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior()
@@ -115,44 +192,40 @@ fun AdvancedPage() {
                         contentDescription = null,
                     )
                 }
-            }, title = { Text(text = "高级模式") }, actions = {})
-        }) { contentPadding ->
+            }, title = { Text(text = "高级设置") })
+        }
+    ) { contentPadding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
                 .padding(contentPadding),
         ) {
-            Text(
-                text = "Shizuku",
-                modifier = Modifier.itemPadding(),
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.primary,
-            )
+            ShizukuTitleCard()
             val shizukuOk by shizukuOkState.stateFlow.collectAsState()
-            if (!shizukuOk) {
-                AuthCard(title = "Shizuku授权",
-                    desc = "高级模式:准确识别界面ID,强制模拟点击",
+            AnimatedVisibility(!shizukuOk) {
+                AuthCard(
+                    title = "授权使用",
+                    subtitle = "授权后可使用下列功能",
                     onAuthClick = {
                         try {
                             Shizuku.requestPermission(Activity.RESULT_OK)
                         } catch (e: Exception) {
-                            LogUtils.d("Shizuku授权错误", e)
-                            toast("Shizuku可能没有运行")
+                            LogUtils.d("Shizuku授权错误", e.message)
+                            mainVm.shizukuErrorFlow.value = true
                         }
                     })
-                ShizukuFragment(false)
-            } else {
-                ShizukuFragment()
             }
+            ShizukuFragment(shizukuOk)
 
-            val httpServerRunning by HttpService.isRunning.collectAsState()
+            val server by HttpService.httpServerFlow.collectAsState()
+            val httpServerRunning = server != null
             val localNetworkIps by HttpService.localNetworkIpsFlow.collectAsState()
 
             Text(
                 text = "HTTP服务",
-                modifier = Modifier.itemPadding(),
-                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.titleItemPadding(),
+                style = MaterialTheme.typography.titleSmall,
                 color = MaterialTheme.colorScheme.primary,
             )
             Row(
@@ -167,112 +240,99 @@ fun AdvancedPage() {
                     CompositionLocalProvider(
                         LocalTextStyle provides MaterialTheme.typography.bodyMedium
                     ) {
-                        if (!httpServerRunning) {
-                            Text(
-                                text = "在浏览器下连接调试工具",
-                            )
-                        } else {
-                            Text(
-                                text = "点击下面任意链接打开即可自动连接",
-                            )
-                            Row {
-                                Text(
-                                    text = "http://127.0.0.1:${store.httpServerPort}",
-                                    color = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.clickable {
-                                        context.openUri("http://127.0.0.1:${store.httpServerPort}")
-                                    }
-                                )
-                                Spacer(modifier = Modifier.width(2.dp))
-                                Text(text = "仅本设备可访问")
-                            }
-                            localNetworkIps.forEach { host ->
-                                Text(
-                                    text = "http://${host}:${store.httpServerPort}",
-                                    color = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.clickable {
-                                        context.openUri("http://${host}:${store.httpServerPort}")
-                                    }
-                                )
+                        Text(text = if (httpServerRunning) "点击链接打开即可自动连接" else "在浏览器下连接调试工具")
+                        AnimatedVisibility(httpServerRunning) {
+                            Column {
+                                Row {
+                                    val localUrl = "http://127.0.0.1:${store.httpServerPort}"
+                                    Text(
+                                        text = localUrl,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        style = LocalTextStyle.current.copy(textDecoration = TextDecoration.Underline),
+                                        modifier = Modifier.clickable(onClick = throttle {
+                                            mainVm.openUrl(localUrl)
+                                        }),
+                                    )
+                                    Spacer(modifier = Modifier.width(2.dp))
+                                    Text(text = "仅本设备可访问")
+                                }
+                                localNetworkIps.forEach { host ->
+                                    val lanUrl = "http://${host}:${store.httpServerPort}"
+                                    Text(
+                                        text = lanUrl,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        style = LocalTextStyle.current.copy(textDecoration = TextDecoration.Underline),
+                                        modifier = Modifier.clickable(onClick = throttle {
+                                            mainVm.openUrl(lanUrl)
+                                        })
+                                    )
+                                }
                             }
                         }
                     }
                 }
                 Switch(
                     checked = httpServerRunning,
-                    onCheckedChange = scope.launchAsFn<Boolean> {
+                    onCheckedChange = throttle(fn = vm.viewModelScope.launchAsFn<Boolean> {
                         if (it) {
-                            if (!checkOrRequestPermission(context, notificationState)) {
-                                return@launchAsFn
-                            }
+                            requiredPermission(context, foregroundServiceSpecialUseState)
+                            requiredPermission(context, notificationState)
                             HttpService.start()
                         } else {
                             HttpService.stop()
                         }
-                    }
+                    })
                 )
             }
 
-            Row(
-                modifier = Modifier
-                    .clickable { showPortDlg = true }
-                    .itemPadding(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "服务端口",
-                        style = MaterialTheme.typography.bodyLarge,
-                    )
-                    Text(
-                        text = store.httpServerPort.toString(),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+            SettingItem(
+                title = "服务端口",
+                subtitle = store.httpServerPort.toString(),
+                imageVector = Icons.Outlined.Edit,
+                onClick = {
+                    showEditPortDlg = true
                 }
-                Spacer(modifier = Modifier.width(10.dp))
-                Icon(imageVector = Icons.Default.Edit, contentDescription = null)
-            }
+            )
 
             TextSwitch(
-                name = "保留内存订阅",
-                desc = "当HTTP服务关闭时,保留内存订阅",
-                checked = !store.autoClearMemorySubs
+                title = "清除订阅",
+                subtitle = "服务关闭时,删除内存订阅",
+                checked = store.autoClearMemorySubs
             ) {
                 storeFlow.value = store.copy(
-                    autoClearMemorySubs = !it
+                    autoClearMemorySubs = it
                 )
             }
 
             Text(
                 text = "快照",
-                modifier = Modifier.itemPadding(),
-                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.titleItemPadding(),
+                style = MaterialTheme.typography.titleSmall,
                 color = MaterialTheme.colorScheme.primary,
             )
 
             SettingItem(
-                title = "快照记录" + (if (snapshotCount > 0) "-$snapshotCount" else ""),
+                title = "快照记录",
+                subtitle = "应用界面节点信息及截图",
                 onClick = {
-                    navController.navigate(SnapshotPageDestination)
+                    navController.toDestinationsNavigator().navigate(SnapshotPageDestination)
                 }
             )
+
 
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
                 val screenshotRunning by ScreenshotService.isRunning.collectAsState()
                 TextSwitch(
-                    name = "截屏服务",
-                    desc = "生成快照需要获取屏幕截图",
+                    title = "截屏服务",
+                    subtitle = "生成快照需要获取屏幕截图",
                     checked = screenshotRunning,
-                    onCheckedChange = scope.launchAsFn<Boolean> {
+                    onCheckedChange = vm.viewModelScope.launchAsFn<Boolean> {
                         if (it) {
-                            if (!checkOrRequestPermission(context, notificationState)) {
-                                return@launchAsFn
-                            }
+                            requiredPermission(context, notificationState)
                             val mediaProjectionManager =
                                 context.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
                             val activityResult =
-                                launcher.launchForResult(mediaProjectionManager.createScreenCaptureIntent())
+                                context.launcher.launchForResult(mediaProjectionManager.createScreenCaptureIntent())
                             if (activityResult.resultCode == Activity.RESULT_OK && activityResult.data != null) {
                                 ScreenshotService.start(intent = activityResult.data!!)
                             }
@@ -285,28 +345,24 @@ fun AdvancedPage() {
 
             val floatingRunning by FloatingService.isRunning.collectAsState()
             TextSwitch(
-                name = "悬浮窗服务",
-                desc = "显示截屏按钮,便于用户主动保存快照",
+                title = "悬浮窗服务",
+                subtitle = "显示悬浮按钮点击保存快照",
                 checked = floatingRunning,
-                onCheckedChange = scope.launchAsFn<Boolean> {
+                onCheckedChange = vm.viewModelScope.launchAsFn<Boolean> {
                     if (it) {
-                        if (!checkOrRequestPermission(context, notificationState)) {
-                            return@launchAsFn
-                        }
-                        if (!checkOrRequestPermission(context, canDrawOverlaysState)) {
-                            return@launchAsFn
-                        }
-                        val intent = Intent(context, FloatingService::class.java)
-                        ContextCompat.startForegroundService(context, intent)
+                        requiredPermission(context, foregroundServiceSpecialUseState)
+                        requiredPermission(context, notificationState)
+                        requiredPermission(context, canDrawOverlaysState)
+                        FloatingService.start()
                     } else {
-                        FloatingService.stop(context)
+                        FloatingService.stop()
                     }
                 }
             )
 
             TextSwitch(
-                name = "音量快照",
-                desc = "音量变化时生成快照,悬浮窗按钮不工作时使用",
+                title = "音量快照",
+                subtitle = "音量变化时保存快照",
                 checked = store.captureVolumeChange
             ) {
                 storeFlow.value = store.copy(
@@ -315,8 +371,15 @@ fun AdvancedPage() {
             }
 
             TextSwitch(
-                name = "截屏快照",
-                desc = "当用户截屏时保存快照(需手动替换快照图片),仅支持部分小米设备",
+                title = "截屏快照",
+                subtitle = "触发截屏时保存快照",
+                suffix = "查看限制",
+                onSuffixClick = {
+                    mainVm.dialogFlow.updateDialogOptions(
+                        title = "限制说明",
+                        text = "仅支持部分小米设备截屏触发\n\n只保存节点信息不保存图片, 用户需要在快照记录里替换截图",
+                    )
+                },
                 checked = store.captureScreenshot
             ) {
                 storeFlow.value = store.copy(
@@ -325,8 +388,8 @@ fun AdvancedPage() {
             }
 
             TextSwitch(
-                name = "隐藏快照状态栏",
-                desc = "当保存快照时,隐藏截图里的顶部状态栏高度区域",
+                title = "隐藏状态栏",
+                subtitle = "隐藏截图顶部状态栏",
                 checked = store.hideSnapshotStatusBar
             ) {
                 storeFlow.value = store.copy(
@@ -334,15 +397,70 @@ fun AdvancedPage() {
                 )
             }
 
+            TextSwitch(
+                title = "保存提示",
+                subtitle = "保存时提示\"正在保存快照\"",
+                checked = store.showSaveSnapshotToast
+            ) {
+                storeFlow.value = store.copy(
+                    showSaveSnapshotToast = it
+                )
+            }
+
+            SettingItem(
+                title = "Github Cookie",
+                subtitle = "生成快照/日志链接",
+                suffix = "获取教程",
+                onSuffixClick = {
+                    navController.toDestinationsNavigator()
+                        .navigate(WebViewPageDestination(initUrl = (ShortUrlSet.URL1)))
+                },
+                imageVector = Icons.Outlined.Edit,
+                onClick = {
+                    mainVm.showEditCookieDlgFlow.value = true
+                }
+            )
+
             Text(
-                text = "其它",
-                modifier = Modifier.itemPadding(),
-                style = MaterialTheme.typography.titleMedium,
+                text = "界面记录",
+                modifier = Modifier.titleItemPadding(),
+                style = MaterialTheme.typography.titleSmall,
                 color = MaterialTheme.colorScheme.primary,
             )
 
-            TextSwitch(name = "前台悬浮窗",
-                desc = "添加透明悬浮窗,关闭可能导致不点击/点击缓慢",
+            TextSwitch(
+                title = "记录界面",
+                subtitle = "记录打开的应用及界面",
+                checked = store.enableActivityLog
+            ) {
+                storeFlow.value = store.copy(
+                    enableActivityLog = it
+                )
+            }
+            SettingItem(
+                title = "界面记录",
+                onClick = {
+                    navController.toDestinationsNavigator().navigate(ActivityLogPageDestination)
+                }
+            )
+
+            Text(
+                text = "其他",
+                modifier = Modifier.titleItemPadding(),
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.primary,
+            )
+
+            TextSwitch(
+                title = "前台悬浮窗",
+                subtitle = "添加透明悬浮窗",
+                suffix = "查看作用",
+                onSuffixClick = {
+                    mainVm.dialogFlow.updateDialogOptions(
+                        title = "悬浮窗作用",
+                        text = "1.提高 GKD 前台优先级, 降低被系统杀死概率\n2.提高点击响应速度, 关闭后可能导致点击缓慢或不点击",
+                    )
+                },
                 checked = store.enableAbFloatWindow,
                 onCheckedChange = {
                     storeFlow.value = store.copy(
@@ -350,113 +468,132 @@ fun AdvancedPage() {
                     )
                 })
 
-            Spacer(modifier = Modifier.height(40.dp))
+            Spacer(modifier = Modifier.height(EmptyHeight))
         }
     }
 
-    if (showPortDlg) {
-        Dialog(onDismissRequest = { showPortDlg = false }) {
-            var value by remember {
-                mutableStateOf(store.httpServerPort.toString())
-            }
-            AlertDialog(title = { Text(text = "请输入新端口") }, text = {
-                OutlinedTextField(
-                    value = value,
-                    onValueChange = {
-                        value = it.filter { c -> c.isDigit() }.take(5)
-                    },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    supportingText = {
-                        Text(
-                            text = "${value.length} / 5",
-                            modifier = Modifier.fillMaxWidth(),
-                            textAlign = TextAlign.End,
-                        )
-                    },
-                )
-            }, onDismissRequest = { showPortDlg = false }, confirmButton = {
-                TextButton(
-                    enabled = value.isNotEmpty(),
-                    onClick = {
-                        val newPort = value.toIntOrNull()
-                        if (newPort == null || !(5000 <= newPort && newPort <= 65535)) {
-                            toast("请输入在 5000~65535 的任意数字")
-                            return@TextButton
-                        }
-                        storeFlow.value = store.copy(
-                            httpServerPort = newPort
-                        )
-                        showPortDlg = false
-                    }
-                ) {
-                    Text(
-                        text = "确认", modifier = Modifier
-                    )
-                }
-            }, dismissButton = {
-                TextButton(onClick = { showPortDlg = false }) {
-                    Text(
-                        text = "取消"
-                    )
-                }
-            })
-        }
-    }
 }
+
+private val checkShizukuMutex by lazy { Mutex() }
 
 @Composable
 private fun ShizukuFragment(enabled: Boolean = true) {
-    val store by storeFlow.collectAsState()
-    TextSwitch(name = "Shizuku-界面识别",
-        desc = "更准确识别界面ID",
-        checked = store.enableShizukuActivity,
+    val shizukuStore by shizukuStoreFlow.collectAsState()
+    val navController = LocalNavController.current
+    TextSwitch(
+        title = "界面识别",
+        subtitle = "更准确识别界面ID",
+        suffix = "使用说明",
+        onSuffixClick = {
+            navController.toDestinationsNavigator()
+                .navigate(WebViewPageDestination(initUrl = ShortUrlSet.URL7))
+        },
+        checked = shizukuStore.enableActivity,
         enabled = enabled,
-        onCheckedChange = { enableShizuku ->
-            if (enableShizuku) {
-                appScope.launchTry(Dispatchers.IO) {
-                    // 校验方法是否适配, 再允许使用 shizuku
-                    val tasks =
-                        newActivityTaskManager()?.safeGetTasks()?.firstOrNull()
-                    if (tasks != null) {
-                        storeFlow.value = store.copy(
-                            enableShizukuActivity = true
-                        )
-                    } else {
-                        toast("Shizuku-界面识别校验失败,无法使用")
+        onCheckedChange = appScope.launchAsFn<Boolean>(Dispatchers.IO) {
+            checkShizukuMutex.withLock {
+                if (it) {
+                    toast("检测中")
+                    if (!shizukuCheckActivity()) {
+                        toast("检测失败,无法使用")
+                        return@launchAsFn
                     }
+                    toast("已启用")
                 }
-            } else {
-                storeFlow.value = store.copy(
-                    enableShizukuActivity = false
-                )
+                shizukuStoreFlow.update { s -> s.copy(enableActivity = it) }
             }
         })
 
     TextSwitch(
-        name = "Shizuku-模拟点击",
-        desc = "变更 clickCenter 为强制模拟点击",
-        checked = store.enableShizukuClick,
+        title = "强制点击",
+        subtitle = "执行强制模拟点击",
+        suffix = "使用说明",
+        onSuffixClick = {
+            navController.toDestinationsNavigator()
+                .navigate(WebViewPageDestination(initUrl = ShortUrlSet.URL8))
+        },
+        checked = shizukuStore.enableTapClick,
         enabled = enabled,
-        onCheckedChange = { enableShizuku ->
-            if (enableShizuku) {
-                appScope.launchTry(Dispatchers.IO) {
-                    val service = newUserService()
-                    val result = service.userService.execCommand("input tap 0 0")
-                    service.destroy()
-                    if (json.decodeFromString<CommandResult>(result).code == 0) {
-                        storeFlow.update { it.copy(enableShizukuClick = true) }
-                    } else {
-                        toast("Shizuku-模拟点击校验失败,无法使用")
+        onCheckedChange = appScope.launchAsFn<Boolean>(Dispatchers.IO) {
+            checkShizukuMutex.withLock {
+                if (it) {
+                    toast("检测中")
+                    if (!shizukuCheckUserService()) {
+                        toast("检测失败,无法使用")
+                        return@launchAsFn
                     }
+                    toast("已启用")
                 }
-            } else {
-                storeFlow.value = store.copy(
-                    enableShizukuClick = false
-                )
+                shizukuStoreFlow.update { s -> s.copy(enableTapClick = it) }
             }
-
         })
 
+
+    TextSwitch(
+        title = "工作空间",
+        subtitle = "扩展工作空间应用列表",
+        suffix = "使用说明",
+        onSuffixClick = {
+            navController.toDestinationsNavigator()
+                .navigate(WebViewPageDestination(initUrl = ShortUrlSet.URL9))
+        },
+        checked = shizukuStore.enableWorkProfile,
+        enabled = enabled,
+        onCheckedChange = appScope.launchAsFn<Boolean>(Dispatchers.IO) {
+            checkShizukuMutex.withLock {
+                if (it) {
+                    toast("检测中")
+                    if (!shizukuCheckWorkProfile()) {
+                        toast("检测失败,无法使用")
+                        return@launchAsFn
+                    }
+                    toast("已启用")
+                }
+                shizukuStoreFlow.update { s -> s.copy(enableWorkProfile = it) }
+            }
+        })
+
+}
+
+@Composable
+private fun ShizukuTitleCard() {
+    val mainVm = LocalMainViewModel.current
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .titleItemPadding(showTop = false),
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Text(
+            text = "Shizuku",
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.primary,
+        )
+        val appInfoCache by appInfoCacheFlow.collectAsState()
+        val shizukuVersionCode = appInfoCache[shizukuAppId]?.versionCode
+        if (shizukuVersionCode != null && shizukuVersionCode < shizukuMiniVersionCode) {
+            Row(
+                modifier = Modifier.clickable(onClick = throttle {
+                    mainVm.dialogFlow.updateDialogOptions(
+                        title = "版本过低",
+                        text = "检测到 Shizuku 版本过低, 可能影响 GKD 正常运行, 建议自行更新至最新版本后再使用",
+                    )
+                }),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    imageVector = Icons.Default.WarningAmber,
+                    contentDescription = null,
+                    modifier = Modifier.height(MaterialTheme.typography.bodySmall.fontSize.value.dp),
+                    tint = MaterialTheme.colorScheme.error,
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(
+                    text = "版本过低",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+        }
+    }
 }

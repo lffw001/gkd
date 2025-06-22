@@ -20,10 +20,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import li.songe.gkd.ui.style.itemPadding
 import li.songe.gkd.util.Option
+import li.songe.gkd.util.OptionIcon
 import li.songe.gkd.util.allSubObject
 
 @Composable
 fun <T> TextMenu(
+    modifier: Modifier = Modifier,
     title: String,
     option: Option<T>,
     onOptionChange: ((Option<T>) -> Unit),
@@ -34,8 +36,13 @@ fun <T> TextMenu(
             .clickable {
                 expanded = true
             }
-            .fillMaxWidth()
-            .itemPadding(),
+            .fillMaxWidth().let {
+                if (modifier == Modifier) {
+                    it.itemPadding()
+                } else {
+                    it.then(modifier)
+                }
+            },
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
@@ -60,6 +67,12 @@ fun <T> TextMenu(
             ) {
                 option.allSubObject.forEach { otherOption ->
                     DropdownMenuItem(
+                        leadingIcon = if (otherOption is OptionIcon) ({
+                            Icon(
+                                imageVector = otherOption.icon,
+                                contentDescription = null
+                            )
+                        }) else null,
                         text = {
                             Text(text = otherOption.label)
                         },
